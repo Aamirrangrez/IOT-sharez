@@ -13,23 +13,23 @@
 ───────────────────────────────────────────── */
 const CORRECT_PASSWORD = 'sharez_2004';
 const VOICE_PASSPHRASE = 'delta start'; // normalized
-const IST_TIMEZONE     = 'Asia/Kolkata';
-const dayNames         = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const IST_TIMEZONE = 'Asia/Kolkata';
+const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /* ─────────────────────────────────────────────
    STATE
 ───────────────────────────────────────────── */
 let db = null;
-let relays  = {};   // { relayKey: boolean }  (Firebase raw)
-let timers  = {};   // { timerId: timerObject }
+let relays = {};   // { relayKey: boolean }  (Firebase raw)
+let timers = {};   // { timerId: timerObject }
 let relayAliases = {};  // { relayKey: "display name" }
 let currentEditingTimerId = null;
-let currentRenamingKey    = null;
-let currentTimerTab       = 'onetime';  // 'onetime' | 'daily'
+let currentRenamingKey = null;
+let currentTimerTab = 'onetime';  // 'onetime' | 'daily'
 
 // Voice state
-let recognition      = null;
-let voiceMode        = 'command';   // 'command' | 'unlock'
+let recognition = null;
+let voiceMode = 'command';   // 'command' | 'unlock'
 let voiceIsListening = false;
 let pendingVoiceTimerData = null;   // holds parsed timer data, awaiting daily confirm
 
@@ -39,15 +39,15 @@ let pendingVoiceTimerData = null;   // holds parsed timer data, awaiting daily c
 function switchPwTab(tab) {
   const isPw = tab === 'password';
   document.getElementById('pwPasswordTab').style.display = isPw ? '' : 'none';
-  document.getElementById('pwVoiceTab').style.display    = isPw ? 'none' : '';
+  document.getElementById('pwVoiceTab').style.display = isPw ? 'none' : '';
   document.getElementById('tabPw').classList.toggle('active', isPw);
   document.getElementById('tabVoice').classList.toggle('active', !isPw);
   if (!isPw) startVoiceUnlock(); // auto-start listening when switching to voice tab
 }
 
 function checkPassword() {
-  const val    = document.getElementById('pwInput').value;
-  const errEl  = document.getElementById('pwError');
+  const val = document.getElementById('pwInput').value;
+  const errEl = document.getElementById('pwError');
   if (val === CORRECT_PASSWORD) {
     unlockApp();
   } else {
@@ -60,10 +60,10 @@ function checkPassword() {
 }
 
 function togglePwEye() {
-  const inp  = document.getElementById('pwInput');
+  const inp = document.getElementById('pwInput');
   const icon = document.getElementById('pwEyeIcon');
   if (inp.type === 'password') { inp.type = 'text'; icon.className = 'fas fa-eye-slash'; }
-  else                         { inp.type = 'password'; icon.className = 'fas fa-eye'; }
+  else { inp.type = 'password'; icon.className = 'fas fa-eye'; }
 }
 
 function unlockApp() {
@@ -81,9 +81,9 @@ function unlockApp() {
 ───────────────────────────────────────────── */
 function startVoiceUnlock() {
   const statusEl = document.getElementById('voiceUnlockStatus');
-  const errEl    = document.getElementById('pwVoiceError');
-  const btn      = document.getElementById('voiceUnlockBtn');
-  const btnText  = document.getElementById('voiceUnlockBtnText');
+  const errEl = document.getElementById('pwVoiceError');
+  const btn = document.getElementById('voiceUnlockBtn');
+  const btnText = document.getElementById('voiceUnlockBtnText');
 
   errEl.classList.remove('visible');
 
@@ -94,7 +94,7 @@ function startVoiceUnlock() {
   }
 
   const r = new SR();
-  r.lang       = 'en-IN';
+  r.lang = 'en-IN';
   r.continuous = false;
   r.interimResults = false;
 
@@ -107,7 +107,16 @@ function startVoiceUnlock() {
   r.onresult = (e) => {
     const transcript = e.results[0][0].transcript.toLowerCase().trim();
     statusEl.textContent = `Heard: "${transcript}"`;
-    if (transcript.includes(VOICE_PASSPHRASE) || normalize(transcript) === normalize(VOICE_PASSPHRASE)) {
+
+    // Match if ALL words of the passphrase appear in the transcript
+    // This handles: extra filler words, slight accent variations, word order
+    const passphraseWords = VOICE_PASSPHRASE.toLowerCase().trim().split(/\s+/);
+    const transcriptWords = transcript.split(/\s+/);
+    const allWordsFound   = passphraseWords.every(pw =>
+      transcriptWords.some(tw => tw === pw || tw.startsWith(pw) || pw.startsWith(tw))
+    );
+
+    if (allWordsFound || transcript.replace(/\s+/g,'').includes(VOICE_PASSPHRASE.replace(/\s+/g,''))) {
       statusEl.textContent = '✅ Passphrase recognized! Unlocking…';
       btn.classList.remove('listening');
       btnText.textContent = 'Tap to Listen';
@@ -181,7 +190,7 @@ function initApp() {
   // Load aliases from localStorage
   try {
     relayAliases = JSON.parse(localStorage.getItem('relayAliases') || '{}');
-  } catch(e) { relayAliases = {}; }
+  } catch (e) { relayAliases = {}; }
 
   // Persistent delegated click handler for timer Edit/Delete buttons
   // This works across re-renders because it listens on the stable parent containers
@@ -189,10 +198,10 @@ function initApp() {
     document.addEventListener('click', e => {
       const btn = e.target.closest(`#${containerId} button[data-action]`);
       if (!btn) return;
-      const id     = btn.dataset.id;
+      const id = btn.dataset.id;
       const action = btn.dataset.action;
       if (action === 'delete') deleteTimer(id);
-      if (action === 'edit')   editTimer(id);
+      if (action === 'edit') editTimer(id);
     });
   });
 
@@ -200,10 +209,10 @@ function initApp() {
   if (saved) {
     try {
       const { apiKey, databaseURL } = JSON.parse(saved);
-      document.getElementById('apiKey').value       = apiKey;
-      document.getElementById('databaseURL').value  = databaseURL;
+      document.getElementById('apiKey').value = apiKey;
+      document.getElementById('databaseURL').value = databaseURL;
       initializeFirebase(apiKey, databaseURL);
-    } catch(e) { /* ignore */ }
+    } catch (e) { /* ignore */ }
   }
 }
 
@@ -218,21 +227,21 @@ function initializeFirebase(apiKey, databaseURL) {
     db = firebase.database();
 
     document.getElementById('instructionsSection').style.display = 'none';
-    document.getElementById('configSection').style.display       = 'none';
-    document.getElementById('relaysSection').style.display       = 'block';
-    document.getElementById('timersSection').style.display       = 'block';
+    document.getElementById('configSection').style.display = 'none';
+    document.getElementById('relaysSection').style.display = 'block';
+    document.getElementById('timersSection').style.display = 'block';
 
     loadData();
     startTimerScheduler();
     hideLoading();
-  } catch(err) {
+  } catch (err) {
     hideLoading();
     alert('Firebase connection failed: ' + err.message);
   }
 }
 
 function handleConfigSubmit() {
-  const apiKey      = document.getElementById('apiKey').value.trim();
+  const apiKey = document.getElementById('apiKey').value.trim();
   const databaseURL = document.getElementById('databaseURL').value.trim();
   if (!apiKey || !databaseURL) { alert('Please provide both API Key and Database URL.'); return; }
   localStorage.setItem('firebaseConfig', JSON.stringify({ apiKey, databaseURL }));
@@ -273,7 +282,7 @@ function saveAliases() {
 ───────────────────────────────────────────── */
 function renderRelays() {
   const container = document.getElementById('relaysContainer');
-  const entries   = Object.entries(relays).filter(
+  const entries = Object.entries(relays).filter(
     ([k, v]) => k && k !== 'undefined' && k.trim() && typeof v === 'boolean'
   );
 
@@ -295,17 +304,17 @@ function renderRelays() {
   entries.forEach(([relay, state]) => {
     const physicallyOn = !state; // active-LOW inversion
     physicallyOn ? onCount++ : offCount++;
-    const cls   = physicallyOn ? 'on' : 'off';
-    const icon  = physicallyOn ? 'fa-toggle-on' : 'fa-toggle-off';
+    const cls = physicallyOn ? 'on' : 'off';
+    const icon = physicallyOn ? 'fa-toggle-on' : 'fa-toggle-off';
     const alias = getAlias(relay);
 
     // Reuse existing card element if possible (reduces DOM thrash)
     let div = document.getElementById(`rc_${relay}`);
     let isNew = false;
     if (!div) {
-      div   = document.createElement('div');
+      div = document.createElement('div');
       div.id = `rc_${relay}`;
-      isNew  = true;
+      isNew = true;
     }
     div.className = `relay-card ${cls}`;
 
@@ -358,9 +367,9 @@ function renderRelays() {
 }
 
 function updateRelayCounts(on, off) {
-  const onEl  = document.getElementById('onCount');
+  const onEl = document.getElementById('onCount');
   const offEl = document.getElementById('offCount');
-  if (onEl)  onEl.textContent  = on;
+  if (onEl) onEl.textContent = on;
   if (offEl) offEl.textContent = off;
 }
 
@@ -374,11 +383,11 @@ function toggleRelay(relay, physicalState, event) {
   if (event) {
     const card = document.getElementById(`rc_${relay}`);
     if (card) {
-      const r    = document.createElement('div');
+      const r = document.createElement('div');
       r.className = 'ripple-effect';
       const rect = card.getBoundingClientRect();
       r.style.left = (event.clientX - rect.left - 30) + 'px';
-      r.style.top  = (event.clientY - rect.top  - 30) + 'px';
+      r.style.top = (event.clientY - rect.top - 30) + 'px';
       card.appendChild(r);
       setTimeout(() => r.remove(), 500);
     }
@@ -431,18 +440,18 @@ function saveRename() {
 function switchTimerTab(tab) {
   currentTimerTab = tab;
   const oneTime = document.getElementById('oneTimeTimersContainer');
-  const daily   = document.getElementById('dailyTimersContainer');
+  const daily = document.getElementById('dailyTimersContainer');
   document.getElementById('tabOneTime').classList.toggle('active', tab === 'onetime');
-  document.getElementById('tabDaily').classList.toggle('active',   tab === 'daily');
+  document.getElementById('tabDaily').classList.toggle('active', tab === 'daily');
   oneTime.style.display = tab === 'onetime' ? '' : 'none';
-  daily.style.display   = tab === 'daily'   ? '' : 'none';
+  daily.style.display = tab === 'daily' ? '' : 'none';
 }
 
 function renderTimers() {
   const oneTimeContainer = document.getElementById('oneTimeTimersContainer');
-  const dailyContainer   = document.getElementById('dailyTimersContainer');
+  const dailyContainer = document.getElementById('dailyTimersContainer');
   oneTimeContainer.innerHTML = '';
-  dailyContainer.innerHTML   = '';
+  dailyContainer.innerHTML = '';
 
   const entries = Object.entries(timers).filter(
     ([, t]) => t && t.relay && t.relay !== 'undefined' && t.relay.trim()
@@ -451,7 +460,7 @@ function renderTimers() {
   if (entries.length === 0) {
     const empty = `<div class="empty-state"><i class="fas fa-clock"></i><p>No timers configured yet</p></div>`;
     oneTimeContainer.innerHTML = empty;
-    dailyContainer.innerHTML   = empty;
+    dailyContainer.innerHTML = empty;
     return;
   }
 
@@ -459,7 +468,7 @@ function renderTimers() {
 
   entries.forEach(([id, timer]) => {
     const activeDays = timer.days
-      ? timer.days.map((a, i) => a ? dayNames[i].slice(0,3) : null).filter(Boolean).join(', ')
+      ? timer.days.map((a, i) => a ? dayNames[i].slice(0, 3) : null).filter(Boolean).join(', ')
       : 'None';
 
     const alias = getAlias(timer.relay);
@@ -483,11 +492,11 @@ function renderTimers() {
     `;
 
     if (timer.isDaily) { dailyContainer.appendChild(div); dailyCount++; }
-    else               { oneTimeContainer.appendChild(div); oneTimeCount++; }
+    else { oneTimeContainer.appendChild(div); oneTimeCount++; }
   });
 
   if (oneTimeCount === 0) oneTimeContainer.innerHTML = `<div class="empty-state"><i class="fas fa-calendar-day"></i><p>No one-time timers</p></div>`;
-  if (dailyCount   === 0) dailyContainer.innerHTML   = `<div class="empty-state"><i class="fas fa-repeat"></i><p>No daily schedules</p></div>`;
+  if (dailyCount === 0) dailyContainer.innerHTML = `<div class="empty-state"><i class="fas fa-repeat"></i><p>No daily schedules</p></div>`;
 }
 
 /* ─────────────────────────────────────────────
@@ -500,7 +509,7 @@ function updateTimerFormRelays() {
   Object.keys(relays).forEach(relay => {
     if (!relay || relay === 'undefined' || !relay.trim()) return;
     const opt = document.createElement('option');
-    opt.value       = relay;
+    opt.value = relay;
     opt.textContent = getAlias(relay);
     sel.appendChild(opt);
   });
@@ -511,9 +520,9 @@ function updateTimerFormRelays() {
    DAILY SWITCH (in modal)
 ───────────────────────────────────────────── */
 function toggleDailySwitch() {
-  const wrap  = document.getElementById('dailySwitchWrap');
+  const wrap = document.getElementById('dailySwitchWrap');
   const input = document.getElementById('timerIsDaily');
-  const isOn  = input.value === '1';
+  const isOn = input.value === '1';
   input.value = isOn ? '0' : '1';
   wrap.classList.toggle('active', !isOn);
 }
@@ -529,10 +538,10 @@ function setDailySwitchState(on) {
 function openTimerModal() {
   currentEditingTimerId = null;
   document.getElementById('modalTitle').innerHTML = '<i class="fas fa-clock"></i> Add New Timer';
-  document.getElementById('timerRelay').value     = '';
-  document.getElementById('timerAction').value    = '';
+  document.getElementById('timerRelay').value = '';
+  document.getElementById('timerAction').value = '';
   document.getElementById('timerStartTime').value = '';
-  document.getElementById('timerEndTime').value   = '';
+  document.getElementById('timerEndTime').value = '';
   setDailySwitchState(false);
   resetDayChips();
   document.getElementById('timerModal').classList.add('open');
@@ -545,7 +554,7 @@ function closeTimerModal() {
 
 function toggleDay(i) {
   const chip = document.getElementById(`dc${i}`);
-  const cb   = document.getElementById(`day${i}`);
+  const cb = document.getElementById(`day${i}`);
   chip.classList.toggle('active');
   cb.checked = chip.classList.contains('active');
 }
@@ -562,10 +571,10 @@ function editTimer(timerId) {
   if (!timer) return;
   currentEditingTimerId = timerId;
   document.getElementById('modalTitle').innerHTML = '<i class="fas fa-pen"></i> Edit Timer';
-  document.getElementById('timerRelay').value     = timer.relay || '';
-  document.getElementById('timerAction').value    = timer.action || '';
+  document.getElementById('timerRelay').value = timer.relay || '';
+  document.getElementById('timerAction').value = timer.action || '';
   document.getElementById('timerStartTime').value = timer.startTime || '';
-  document.getElementById('timerEndTime').value   = timer.endTime   || '';
+  document.getElementById('timerEndTime').value = timer.endTime || '';
   setDailySwitchState(!!timer.isDaily);
   resetDayChips();
   if (timer.days) timer.days.forEach((active, i) => {
@@ -591,11 +600,11 @@ function deleteTimer(timerId) {
 }
 
 function handleTimerSubmit() {
-  const relay     = document.getElementById('timerRelay').value;
-  const action    = document.getElementById('timerAction').value;
+  const relay = document.getElementById('timerRelay').value;
+  const action = document.getElementById('timerAction').value;
   const startTime = document.getElementById('timerStartTime').value;
-  const endTime   = document.getElementById('timerEndTime').value;
-  const isDaily   = document.getElementById('timerIsDaily').value === '1';
+  const endTime = document.getElementById('timerEndTime').value;
+  const isDaily = document.getElementById('timerIsDaily').value === '1';
 
   if (!relay || relay === 'undefined' || !action || !startTime || !relays.hasOwnProperty(relay)) {
     alert('Please select a valid relay, action, and start time.'); return;
@@ -629,9 +638,9 @@ function showCredentialsModal() {
   if (saved) {
     try {
       const { apiKey, databaseURL } = JSON.parse(saved);
-      document.getElementById('newApiKey').value      = apiKey;
+      document.getElementById('newApiKey').value = apiKey;
       document.getElementById('newDatabaseURL').value = databaseURL;
-    } catch(e) {}
+    } catch (e) { }
   }
   document.getElementById('credentialsModal').classList.add('open');
 }
@@ -641,25 +650,25 @@ function closeCredentialsModal() {
 }
 
 function handleCredentialsSubmit() {
-  const apiKey      = document.getElementById('newApiKey').value.trim();
+  const apiKey = document.getElementById('newApiKey').value.trim();
   const databaseURL = document.getElementById('newDatabaseURL').value.trim();
   if (!apiKey || !databaseURL) { alert('Please provide both fields.'); return; }
   localStorage.setItem('firebaseConfig', JSON.stringify({ apiKey, databaseURL }));
   closeCredentialsModal();
   document.getElementById('instructionsSection').style.display = 'block';
-  document.getElementById('configSection').style.display       = 'block';
-  document.getElementById('relaysSection').style.display       = 'none';
-  document.getElementById('timersSection').style.display       = 'none';
-  document.getElementById('apiKey').value       = apiKey;
-  document.getElementById('databaseURL').value  = databaseURL;
+  document.getElementById('configSection').style.display = 'block';
+  document.getElementById('relaysSection').style.display = 'none';
+  document.getElementById('timersSection').style.display = 'none';
+  document.getElementById('apiKey').value = apiKey;
+  document.getElementById('databaseURL').value = databaseURL;
   alert('Credentials updated! Click "Connect to Firebase" to reconnect.');
 }
 
 function modalBackdropClick(event, modalId) {
   if (event.target.id === modalId) {
     document.getElementById(modalId).classList.remove('open');
-    if (modalId === 'timerModal')   currentEditingTimerId = null;
-    if (modalId === 'renameModal')  currentRenamingKey    = null;
+    if (modalId === 'timerModal') currentEditingTimerId = null;
+    if (modalId === 'renameModal') currentRenamingKey = null;
   }
 }
 
@@ -668,14 +677,14 @@ function modalBackdropClick(event, modalId) {
 ───────────────────────────────────────────── */
 function updateRelayForTimer(timer) {
   if (!timer || !timer.active || !timer.relay || !timer.startTime || !timer.days
-      || timer.relay === 'undefined' || !relays.hasOwnProperty(timer.relay)) return;
+    || timer.relay === 'undefined' || !relays.hasOwnProperty(timer.relay)) return;
 
-  const now        = moment().tz(IST_TIMEZONE);
+  const now = moment().tz(IST_TIMEZONE);
   const currentDay = (now.day() + 6) % 7;
   if (!timer.days[currentDay]) return;
 
   const startTime = moment.tz(`${now.format('YYYY-MM-DD')} ${timer.startTime}`, 'YYYY-MM-DD HH:mm', IST_TIMEZONE);
-  let   endTime   = timer.endTime
+  let endTime = timer.endTime
     ? moment.tz(`${now.format('YYYY-MM-DD')} ${timer.endTime}`, 'YYYY-MM-DD HH:mm', IST_TIMEZONE)
     : null;
 
@@ -694,16 +703,16 @@ function updateRelayForTimer(timer) {
 function startTimerScheduler() {
   function tick() {
     if (!db) return;
-    const now        = moment().tz(IST_TIMEZONE);
+    const now = moment().tz(IST_TIMEZONE);
     const currentDay = (now.day() + 6) % 7;
     let nextTimer = null, nextTimerDate = null;
 
     Object.values(timers).forEach(timer => {
       if (!timer?.active || !timer.days?.[currentDay] || !timer.relay
-          || timer.relay === 'undefined' || !relays.hasOwnProperty(timer.relay)) return;
+        || timer.relay === 'undefined' || !relays.hasOwnProperty(timer.relay)) return;
 
       const startTime = moment.tz(`${now.format('YYYY-MM-DD')} ${timer.startTime}`, 'YYYY-MM-DD HH:mm', IST_TIMEZONE);
-      let   endTime   = timer.endTime
+      let endTime = timer.endTime
         ? moment.tz(`${now.format('YYYY-MM-DD')} ${timer.endTime}`, 'YYYY-MM-DD HH:mm', IST_TIMEZONE)
         : null;
       if (endTime && endTime.isBefore(startTime)) endTime.add(1, 'day');
@@ -718,10 +727,10 @@ function startTimerScheduler() {
     // Find next upcoming timer
     for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
       const checkDate = moment(now).add(dayOffset, 'days');
-      const checkDay  = (checkDate.day() + 6) % 7;
+      const checkDay = (checkDate.day() + 6) % 7;
       Object.values(timers).forEach(timer => {
         if (!timer?.active || !timer.days?.[checkDay] || !timer.relay
-            || timer.relay === 'undefined' || !relays.hasOwnProperty(timer.relay)) return;
+          || timer.relay === 'undefined' || !relays.hasOwnProperty(timer.relay)) return;
         const startTime = moment.tz(`${checkDate.format('YYYY-MM-DD')} ${timer.startTime}`, 'YYYY-MM-DD HH:mm', IST_TIMEZONE);
         if (dayOffset === 0 && startTime.isSameOrBefore(now)) return;
         if (!nextTimer || startTime.isBefore(nextTimerDate)) { nextTimer = timer; nextTimerDate = startTime; }
@@ -752,7 +761,7 @@ function startTimerScheduler() {
    ═══════════════════════════════════════════════════════════════ */
 
 const LANG_CODES = ['hi-IN', 'mr-IN', 'en-IN'];
-let   langIndex  = 0;
+let langIndex = 0;
 
 function startVoiceCommand() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -763,15 +772,15 @@ function startVoiceCommand() {
   document.getElementById('voiceOverlay').classList.add('open');
   document.getElementById('voiceFab').classList.add('listening');
   document.getElementById('voiceFabIcon').className = 'fas fa-stop';
-  document.getElementById('voiceStatus').textContent  = 'Listening…';
+  document.getElementById('voiceStatus').textContent = 'Listening…';
   document.getElementById('voiceTranscript').textContent = '';
   document.getElementById('voiceDailyPrompt').style.display = 'none';
 
   recognition = new SR();
-  recognition.continuous       = false;
-  recognition.interimResults   = true;
-  recognition.lang             = LANG_CODES[langIndex];
-  langIndex                    = (langIndex + 1) % LANG_CODES.length;
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.lang = LANG_CODES[langIndex];
+  langIndex = (langIndex + 1) % LANG_CODES.length;
 
   recognition.onresult = (e) => {
     let interim = '', final = '';
@@ -800,7 +809,7 @@ function startVoiceCommand() {
 
 function stopVoiceCommand() {
   voiceIsListening = false;
-  if (recognition) { try { recognition.stop(); } catch(e) {} recognition = null; }
+  if (recognition) { try { recognition.stop(); } catch (e) { } recognition = null; }
   document.getElementById('voiceOverlay').classList.remove('open');
   document.getElementById('voiceFab').classList.remove('listening');
   document.getElementById('voiceFabIcon').className = 'fas fa-microphone';
@@ -820,7 +829,7 @@ function processVoiceCommand(text) {
   if (timerData) {
     // Ask "mark as daily?"
     pendingVoiceTimerData = timerData;
-    document.getElementById('voiceStatus').textContent = `⏱ Timer: ${getAlias(timerData.relay)} ${timerData.action} ${timerData.startTime}${timerData.endTime?' → '+timerData.endTime:''}`;
+    document.getElementById('voiceStatus').textContent = `⏱ Timer: ${getAlias(timerData.relay)} ${timerData.action} ${timerData.startTime}${timerData.endTime ? ' → ' + timerData.endTime : ''}`;
     document.getElementById('voiceDailyPrompt').style.display = 'block';
     return;
   }
@@ -868,12 +877,12 @@ function confirmDailyFromVoice(isDaily) {
    Also uses relay aliases
 ───────────────────────────────────────────── */
 function parseRelayCommand(norm) {
-  const onWords  = ['on','chalu','chalv','chalo','jalao','jala','lav','laga','shuru','start','open','켜'];
-  const offWords = ['off','band','bandh','stop','bujhao','bujha','close','बंद'];
+  const onWords = ['on', 'chalu', 'chalv', 'chalo', 'jalao', 'jala', 'lav', 'laga', 'shuru', 'start', 'open', '켜'];
+  const offWords = ['off', 'band', 'bandh', 'stop', 'bujhao', 'bujha', 'close', 'बंद'];
 
   // Find which relay is mentioned (check alias first, then raw key)
   let matchedRelay = null;
-  const relayKeys  = Object.keys(relays).filter(k => k && k !== 'undefined' && k.trim());
+  const relayKeys = Object.keys(relays).filter(k => k && k !== 'undefined' && k.trim());
 
   // Sort longer aliases first to prefer specific matches
   const sortedKeys = relayKeys.slice().sort((a, b) => {
@@ -883,7 +892,7 @@ function parseRelayCommand(norm) {
 
   for (const key of sortedKeys) {
     const aliasNorm = normalize(getAlias(key));
-    const keyNorm   = normalize(key);
+    const keyNorm = normalize(key);
     if (norm.includes(aliasNorm) || norm.includes(keyNorm)) {
       matchedRelay = key;
       break;
@@ -892,7 +901,7 @@ function parseRelayCommand(norm) {
 
   if (!matchedRelay) return null;
 
-  const isOn  = onWords.some(w  => norm.includes(w));
+  const isOn = onWords.some(w => norm.includes(w));
   const isOff = offWords.some(w => norm.includes(w));
 
   if (!isOn && !isOff) return null;
@@ -911,15 +920,15 @@ function parseRelayCommand(norm) {
 function parseVoiceTimer(norm) {
   // Detect time-range keywords
   const hasRange = norm.includes('se') || norm.includes('se ') ||
-                   norm.includes('from') || norm.includes('tak') ||
-                   norm.includes('to ') || norm.includes('baje') ||
-                   norm.includes('pm') || norm.includes('am') ||
-                   /\d+\s*:\s*\d+/.test(norm) || /\d+\s*baj/.test(norm);
+    norm.includes('from') || norm.includes('tak') ||
+    norm.includes('to ') || norm.includes('baje') ||
+    norm.includes('pm') || norm.includes('am') ||
+    /\d+\s*:\s*\d+/.test(norm) || /\d+\s*baj/.test(norm);
 
   if (!hasRange) return null;
 
   // Find relay
-  const relayKeys  = Object.keys(relays).filter(k => k && k !== 'undefined' && k.trim());
+  const relayKeys = Object.keys(relays).filter(k => k && k !== 'undefined' && k.trim());
   const sortedKeys = relayKeys.slice().sort((a, b) => {
     const al = normalize(getAlias(a)), bl = normalize(getAlias(b));
     return bl.length - al.length;
@@ -928,7 +937,7 @@ function parseVoiceTimer(norm) {
   let matchedRelay = null;
   for (const key of sortedKeys) {
     const aliasNorm = normalize(getAlias(key));
-    const keyNorm   = normalize(key);
+    const keyNorm = normalize(key);
     if (norm.includes(aliasNorm) || norm.includes(keyNorm)) {
       matchedRelay = key;
       break;
@@ -941,9 +950,9 @@ function parseVoiceTimer(norm) {
   if (times.length < 1) return null;
 
   // Detect action
-  const onWords  = ['on ','on karo','chalu','jalao','lav','shuru','start','chalo','laga','open'];
-  const offWords = ['off','band','bandh','stop','bujhao','close'];
-  const isOn  = onWords.some(w  => norm.includes(w));
+  const onWords = ['on ', 'on karo', 'chalu', 'jalao', 'lav', 'shuru', 'start', 'chalo', 'laga', 'open'];
+  const offWords = ['off', 'band', 'bandh', 'stop', 'bujhao', 'close'];
+  const isOn = onWords.some(w => norm.includes(w));
   const isOff = offWords.some(w => norm.includes(w));
   const action = isOff ? 'OFF' : 'ON';
 
@@ -951,12 +960,12 @@ function parseVoiceTimer(norm) {
   const days = Array(7).fill(true);
 
   return {
-    relay:     matchedRelay,
+    relay: matchedRelay,
     action,
     startTime: times[0],
-    endTime:   times[1] || null,
+    endTime: times[1] || null,
     days,
-    active:    true
+    active: true
   };
 }
 
@@ -1031,7 +1040,7 @@ function normalize(str) {
    SECURITY HELPERS
 ───────────────────────────────────────────── */
 function escHtml(str) {
-  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function escAttr(str) {
