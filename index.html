@@ -87,10 +87,16 @@
       </div>
       <div class="topbar-right">
         <div class="time-chip glass" id="currentTimeChip">--:--:--</div>
-        <!-- Voice Assistant FAB -->
-        <button class="icon-btn glass voice-fab" id="voiceFab" onclick="startVoiceCommand()"
-          title="Voice Assistant (Hindi / Marathi / English)">
+        <!-- Voice Assistant FAB - Hold to Speak -->
+        <button class="icon-btn glass voice-fab" id="voiceFab" 
+          onmousedown="startHoldToSpeak()"
+          onmouseup="releaseHoldToSpeak()"
+          onmouseleave="releaseHoldToSpeak()"
+          ontouchstart="startHoldToSpeak()"
+          ontouchend="releaseHoldToSpeak()"
+          title="Hold mic to speak, release to send">
           <i class="fas fa-microphone" id="voiceFabIcon"></i>
+          <span class="hold-indicator" id="holdIndicator"></span>
         </button>
         <button class="icon-btn glass" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
           <i class="fas fa-moon" id="themeIcon"></i>
@@ -111,9 +117,8 @@
           <div class="voice-mic-icon"><i class="fas fa-microphone"></i></div>
         </div>
         <div class="voice-lang-pills">
-          <span class="lang-pill active">Hindi</span>
-          <span class="lang-pill active">Marathi</span>
-          <span class="lang-pill active">English</span>
+          <span class="lang-pill active"><i class="fas fa-globe"></i> English</span>
+          <span class="lang-pill active"><i class="fas fa-language"></i> Hinglish</span>
         </div>
         <p class="voice-status" id="voiceStatus">Listening… speak a command</p>
         <p class="voice-transcript" id="voiceTranscript"></p>
