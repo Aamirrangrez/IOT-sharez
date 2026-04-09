@@ -906,81 +906,111 @@ function stopVoiceCommand() {
 }
 
 /* ─────────────────────────────────────────────
-   HOLD-TO-SPEAK: Press & Hold mic to record
+   VOICE COMMAND  (tap mic button → speak → result)
+   Works on both desktop and mobile
 ───────────────────────────────────────────── */
 let holdToSpeakRecognition = null;
-let isHoldingMic = false;
+let holdFinalTranscript    = '';   // module-level so releaseHoldToSpeak can read it
+let isHoldingMic           = false;
 
 function startHoldToSpeak() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert('Voice not supported. Please use Chrome or Edge.'); return; }
+  if (!SR) { alert('Voice not supported. Use Chrome browser.'); return; }
 
-  isHoldingMic = true;
-  const voiceFab = document.getElementById('voiceFab');
-  const holdIndicator = document.getElementById('holdIndicator');
-
-  voiceFab.classList.add('held');
-  if (holdIndicator) holdIndicator.style.display = 'block';
-
-  // Stop any previous recognition
+  // If already a recognition running — stop it (toggle)
   if (holdToSpeakRecognition) {
-    try { holdToSpeakRecognition.abort(); } catch (e) { }
+    try { holdToSpeakRecognition.abort(); } catch (e) {}
     holdToSpeakRecognition = null;
+    isHoldingMic = false;
+    return;
   }
 
-  holdToSpeakRecognition = new SR();
-  holdToSpeakRecognition.continuous = true;
-  holdToSpeakRecognition.interimResults = true;
-  holdToSpeakRecognition.lang = 'en-IN';
+  isHoldingMic         = true;
+  holdFinalTranscript  = '';
 
-  let finalTranscript = '';
+  // Show overlay immediately so user sees feedback
+  voiceIsListening = true;
+  document.getElementById('voiceOverlay').classList.add('open');
+  document.getElementById('voiceFab').classList.add('listening', 'held');
+  document.getElementById('voiceFabIcon').className = 'fas fa-stop';
+  document.getElementById('voiceStatus').textContent = '🎙 Listening… speak your command';
+  document.getElementById('voiceTranscript').textContent = '';
+  document.getElementById('voiceDailyPrompt').style.display = 'none';
 
-  holdToSpeakRecognition.onresult = (e) => {
-    let interim = '';
+  const holdIndicator = document.getElementById('holdIndicator');
+  if (holdIndicator) holdIndicator.style.display = 'block';
+
+  const r = new SR();
+  holdToSpeakRecognition = r;
+  r.lang           = 'en-IN';
+  r.continuous     = false;      // single utterance — fires onresult once
+  r.interimResults = true;
+  r.maxAlternatives = 3;
+
+  r.onresult = (e) => {
+    let interim = '', final = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) {
-        finalTranscript += t + ' ';
-      } else {
-        interim += t;
-      }
+      if (e.results[i].isFinal) final += t;
+      else interim += t;
     }
-    // Could show interim results here if desired
+    // Show live waveform text
+    document.getElementById('voiceTranscript').textContent = final || interim;
+    if (final) {
+      holdFinalTranscript = final.toLowerCase().trim();
+      processVoiceCommand(holdFinalTranscript);
+      _cleanupHold();
+    }
   };
 
-  holdToSpeakRecognition.onerror = (e) => {
-    console.error('Voice error:', e.error);
+  r.onerror = (e) => {
+    const msgs = {
+      'no-speech':   '🔇 No speech detected — tap & speak',
+      'not-allowed': '🚫 Mic blocked — allow mic in browser',
+      'network':     '📵 Network error',
+    };
+    document.getElementById('voiceStatus').textContent =
+      msgs[e.error] || `⚠ Error: ${e.error}`;
+    setTimeout(() => _cleanupHold(), 2000);
   };
 
-  holdToSpeakRecognition.onend = () => {
-    isHoldingMic = false;
+  r.onend = () => {
+    // If onresult never fired (user was silent), clean up
+    if (!holdFinalTranscript) {
+      document.getElementById('voiceStatus').textContent = '🔇 Nothing heard — tap again';
+      setTimeout(() => _cleanupHold(), 1500);
+    }
   };
 
-  try {
-    holdToSpeakRecognition.start();
-  } catch (e) {
-    console.error('Failed to start recognition:', e);
+  try { r.start(); }
+  catch (startErr) {
+    document.getElementById('voiceStatus').textContent = '⚠ Mic error — allow microphone';
+    _cleanupHold();
   }
 }
 
 function releaseHoldToSpeak() {
-  if (!isHoldingMic) return;
+  // No-op: recognition auto-ends on silence since continuous=false
+  // Kept for HTML ontouchend/onmouseup compatibility
+}
 
+function _cleanupHold() {
   isHoldingMic = false;
-  const voiceFab = document.getElementById('voiceFab');
-  const holdIndicator = document.getElementById('holdIndicator');
-
-  voiceFab.classList.remove('held');
-  if (holdIndicator) holdIndicator.style.display = 'none';
-
+  holdFinalTranscript = '';
   if (holdToSpeakRecognition) {
-    try {
-      holdToSpeakRecognition.stop();
-    } catch (e) {
-      console.error('Error stopping recognition:', e);
-    }
+    try { holdToSpeakRecognition.stop(); } catch (e) {}
     holdToSpeakRecognition = null;
   }
+  document.getElementById('voiceFab').classList.remove('held');
+  const hi = document.getElementById('holdIndicator');
+  if (hi) hi.style.display = 'none';
+  // Close overlay after short delay so user can read result
+  setTimeout(() => {
+    voiceIsListening = false;
+    document.getElementById('voiceOverlay').classList.remove('open');
+    document.getElementById('voiceFab').classList.remove('listening');
+    document.getElementById('voiceFabIcon').className = 'fas fa-microphone';
+  }, 2000);
 }
 
 /* ─────────────────────────────────────────────
@@ -1043,8 +1073,8 @@ function confirmDailyFromVoice(isDaily) {
    Also uses relay aliases
 ───────────────────────────────────────────── */
 function parseRelayCommand(norm) {
-  const onWords = ['on', 'chalu', 'chalv', 'chalo', 'jalao', 'jala', 'lav', 'laga', 'shuru', 'start', 'open', '켜'];
-  const offWords = ['off', 'band', 'bandh', 'stop', 'bujhao', 'bujha', 'close', 'बंद'];
+  const onWords  = ['on', 'chalu', 'chalv', 'chalo', 'jalao', 'jala', 'lav', 'laga', 'shuru', 'start', 'open', 'rakh', 'rakho', 'rako'];
+  const offWords  = ['off', 'band', 'bandh', 'stop', 'bujhao', 'bujha', 'close', 'bund'];
 
   // Find which relay is mentioned (check alias first, then raw key)
   let matchedRelay = null;
@@ -1116,10 +1146,11 @@ function parseVoiceTimer(norm) {
   if (times.length < 1) return null;
 
   // Detect action
-  const onWords = ['on ', 'on karo', 'chalu', 'jalao', 'lav', 'shuru', 'start', 'chalo', 'laga', 'open'];
-  const offWords = ['off', 'band', 'bandh', 'stop', 'bujhao', 'close'];
-  const isOn = onWords.some(w => norm.includes(w));
+  const onWords  = ['on', 'chalu', 'jalao', 'lav', 'shuru', 'start', 'chalo', 'laga', 'open', 'rakh', 'rakho', 'rako'];
+  const offWords  = ['off', 'band', 'bandh', 'stop', 'bujhao', 'close'];
+  // 'rako' alone means keep/maintain — treat as ON unless 'off/band' also found
   const isOff = offWords.some(w => norm.includes(w));
+  const isOn  = !isOff && onWords.some(w => norm.includes(w));
   const action = isOff ? 'OFF' : 'ON';
 
   // All days selected if timer set by voice
