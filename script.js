@@ -31,6 +31,13 @@ let currentTimerTab = 'onetime';  // 'onetime' | 'daily'
 let recognition = null;
 let voiceMode = 'command';   // 'command' | 'unlock'
 let voiceIsListening = false;
+let handsFreeMode = false;
+let silenceTimer = null;
+let audioContext = null;
+let analyser = null;
+let dataArray = null;
+let source = null;
+let animationId = null;
 let pendingVoiceTimerData = null;   // holds parsed timer data, awaiting daily confirm
 
 /* ─────────────────────────────────────────────
@@ -863,21 +870,53 @@ function startVoiceCommand() {
   document.getElementById('voiceStatus').textContent = 'Listening…';
   document.getElementById('voiceTranscript').textContent = '';
   document.getElementById('voiceDailyPrompt').style.display = 'none';
+  playVoiceFeedback('start');
 
   recognition = new SR();
-  recognition.continuous = false;
+  recognition.continuous = handsFreeMode;
   recognition.interimResults = true;
   recognition.lang = 'en-IN';   // Indian English / Hinglish
+  recognition.maxAlternatives = 5;
+
+  initVisualizer();
 
   recognition.onresult = (e) => {
     let interim = '', final = '';
+    const allAlts = [];
+
+    // Clear previous silence timer
+    if (silenceTimer) clearTimeout(silenceTimer);
+
     for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) final += t;
-      else interim += t;
+      const res = e.results[i];
+      const t = res[0].transcript;
+      if (res.isFinal) {
+        final += t;
+        // Collect all alternatives for the final result
+        for (let j = 0; j < res.length; j++) {
+          allAlts.push(res[j].transcript.toLowerCase().trim());
+        }
+      } else {
+        interim += t;
+      }
     }
+
     document.getElementById('voiceTranscript').textContent = final || interim;
-    if (final) processVoiceCommand(final.toLowerCase().trim());
+    
+    // Auto-process on silence (The "Google Assistant" FAST feel)
+    if (interim && !final) {
+      silenceTimer = setTimeout(() => {
+        const textToProcess = interim.toLowerCase().trim();
+        document.getElementById('voiceStatus').textContent = 'Processing...';
+        processVoiceCommand(textToProcess);
+        // Note: we don't stop recognition here if in handsFreeMode
+        if (!handsFreeMode) stopVoiceCommand();
+      }, 800); // 0.8 seconds of silence triggers the command — snappy!
+    }
+
+    if (final) {
+      processVoiceCommand(allAlts.length > 0 ? allAlts : [final.toLowerCase().trim()]);
+    }
   };
 
   recognition.onerror = (e) => {
@@ -895,8 +934,11 @@ function startVoiceCommand() {
 }
 
 function stopVoiceCommand() {
+  if (voiceIsListening) playVoiceFeedback('stop');
   voiceIsListening = false;
+  if (silenceTimer) clearTimeout(silenceTimer);
   if (recognition) { try { recognition.stop(); } catch (e) { } recognition = null; }
+  stopVisualizer();
   document.getElementById('voiceOverlay').classList.remove('open');
   document.getElementById('voiceFab').classList.remove('listening');
   document.getElementById('voiceFabIcon').className = 'fas fa-microphone';
@@ -940,26 +982,37 @@ function startHoldToSpeak() {
   const holdIndicator = document.getElementById('holdIndicator');
   if (holdIndicator) holdIndicator.style.display = 'block';
 
+  initVisualizer();
+
   const r = new SR();
   holdToSpeakRecognition = r;
   r.lang           = 'en-IN';
   r.continuous     = false;      // single utterance — fires onresult once
   r.interimResults = true;
-  r.maxAlternatives = 3;
+  r.maxAlternatives = 5;
 
   r.onresult = (e) => {
     let interim = '', final = '';
+    const allAlts = [];
+    
     for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) final += t;
-      else interim += t;
+      const res = e.results[i];
+      const t = res[0].transcript;
+      if (res.isFinal) {
+        final += t;
+        for (let j = 0; j < res.length; j++) {
+          allAlts.push(res[j].transcript.toLowerCase().trim());
+        }
+      } else {
+        interim += t;
+      }
     }
     // Show live waveform text
     document.getElementById('voiceTranscript').textContent = final || interim;
     if (final) {
       holdFinalTranscript = final.toLowerCase().trim();
-      processVoiceCommand(holdFinalTranscript);
-      _cleanupHold();
+      processVoiceCommand(allAlts.length > 0 ? allAlts : [holdFinalTranscript]);
+      // Note: we still wait for user to release or auto-end
     }
   };
 
@@ -1001,6 +1054,7 @@ function _cleanupHold() {
     try { holdToSpeakRecognition.stop(); } catch (e) {}
     holdToSpeakRecognition = null;
   }
+  stopVisualizer();
   document.getElementById('voiceFab').classList.remove('held');
   const hi = document.getElementById('holdIndicator');
   if (hi) hi.style.display = 'none';
@@ -1014,33 +1068,158 @@ function _cleanupHold() {
 }
 
 /* ─────────────────────────────────────────────
-   VOICE COMMAND PARSER
+   VOICE ASSISTANT V2 — ENHANCEMENTS
 ───────────────────────────────────────────── */
-function processVoiceCommand(text) {
-  const norm = normalize(text);
-  document.getElementById('voiceStatus').textContent = 'Processing: "' + text + '"';
+function toggleHandsFree() {
+  handsFreeMode = !handsFreeMode;
+  const btn = document.getElementById('handsFreeToggle');
+  if (btn) {
+    btn.classList.toggle('active', handsFreeMode);
+    btn.querySelector('span').textContent = `Hands-Free: ${handsFreeMode ? 'ON' : 'OFF'}`;
+  }
+}
 
-  // 1. Try timer command (has time references)
-  const timerData = parseVoiceTimer(norm);
-  if (timerData) {
-    // Ask "mark as daily?"
-    pendingVoiceTimerData = timerData;
-    document.getElementById('voiceStatus').textContent = `⏱ Timer: ${getAlias(timerData.relay)} ${timerData.action} ${timerData.startTime}${timerData.endTime ? ' → ' + timerData.endTime : ''}`;
-    document.getElementById('voiceDailyPrompt').style.display = 'block';
-    return;
+async function initVisualizer() {
+  if (audioContext) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    const bufferLength = analyser.frequencyBinCount;
+    dataArray = new Uint8Array(bufferLength);
+    drawVisualizer();
+  } catch (err) {
+    console.error('Visualizer init failed:', err);
+  }
+}
+
+function drawVisualizer() {
+  const canvas = document.getElementById('voiceVisualizer');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+
+  animationId = requestAnimationFrame(drawVisualizer);
+  analyser.getByteFrequencyData(dataArray);
+
+  ctx.clearRect(0, 0, width, height);
+  
+  const barWidth = (width / dataArray.length) * 2.5;
+  let barHeight;
+  let x = 0;
+
+  // Draw symmetric bars from center
+  const centerX = width / 2;
+  const avg = dataArray.reduce((p, c) => p + c, 0) / dataArray.length;
+  
+  // Pulse the mic icon if sound level is high
+  const micIcon = document.querySelector('.voice-mic-icon');
+  if (micIcon) {
+    if (avg > 40) micIcon.classList.add('active');
+    else micIcon.classList.remove('active');
   }
 
-  // 2. Try relay ON/OFF command
-  const relayCmd = parseRelayCommand(norm);
-  if (relayCmd) {
-    document.getElementById('voiceStatus').textContent = `✅ ${getAlias(relayCmd.relay)} → ${relayCmd.action}`;
-    toggleRelay(relayCmd.relay, relayCmd.action === 'ON', null);
-    setTimeout(stopVoiceCommand, 1500);
-    return;
+  for (let i = 0; i < dataArray.length; i++) {
+    barHeight = (dataArray[i] / 255) * height;
+    
+    // Gradient color based on intensity
+    const g = ctx.createLinearGradient(0, height, 0, 0);
+    g.addColorStop(0, '#4d9fff');
+    g.addColorStop(1, '#00e5a0');
+    ctx.fillStyle = g;
+
+    // Draw right side
+    ctx.fillRect(centerX + x, (height - barHeight) / 2, barWidth - 1, barHeight);
+    // Draw left side
+    ctx.fillRect(centerX - x - barWidth, (height - barHeight) / 2, barWidth - 1, barHeight);
+
+    x += barWidth;
+  }
+}
+
+function stopVisualizer() {
+  if (animationId) cancelAnimationFrame(animationId);
+  animationId = null;
+}
+
+function playVoiceFeedback(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    if (type === 'start') {
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.05);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
+    } else {
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.05);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
+    }
+    
+    osc.start();
+    osc.stop(ctx.currentTime + 0.2);
+  } catch (e) { /* audio blocked */ }
+}
+
+/* ─────────────────────────────────────────────
+   VOICE COMMAND PARSER (V2 - Multi-Alt)
+───────────────────────────────────────────── */
+function processVoiceCommand(input) {
+  // Convert input to array of alternatives if it's just a string
+  const alternatives = Array.isArray(input) ? input : [input];
+  let matchedCmd = null;
+
+  for (const alt of alternatives) {
+    const norm = normalize(alt);
+    document.getElementById('voiceStatus').textContent = 'Processing: "' + alt + '"';
+
+    // 1. Try timer command
+    const timerData = parseVoiceTimer(norm);
+    if (timerData) {
+      pendingVoiceTimerData = timerData;
+      document.getElementById('voiceStatus').textContent = `⏱ Timer: ${getAlias(timerData.relay)} ${timerData.action} ${timerData.startTime}${timerData.endTime ? ' → ' + timerData.endTime : ''}`;
+      document.getElementById('voiceDailyPrompt').style.display = 'block';
+      matchedCmd = 'TIMER';
+      break;
+    }
+
+    // 2. Try relay ON/OFF command
+    const relayCmd = parseRelayCommand(norm);
+    if (relayCmd) {
+      document.getElementById('voiceStatus').textContent = `✅ ${getAlias(relayCmd.relay)} → ${relayCmd.action}`;
+      toggleRelay(relayCmd.relay, relayCmd.action === 'ON', null);
+      matchedCmd = 'RELAY';
+      break;
+    }
   }
 
-  document.getElementById('voiceStatus').textContent = '❓ Command not understood. Try: "fan on karo" or "light band karo"';
-  setTimeout(stopVoiceCommand, 3000);
+  if (matchedCmd) {
+    if (handsFreeMode && matchedCmd === 'RELAY') {
+      // In hands-free, don't close overlay, just reset for next command
+      setTimeout(() => {
+        document.getElementById('voiceStatus').textContent = 'Ready for next command…';
+        document.getElementById('voiceTranscript').textContent = '';
+      }, 2000);
+    } else if (matchedCmd === 'RELAY') {
+      setTimeout(stopVoiceCommand, 1500);
+    }
+    // If it's a TIMER, it's waiting for User Confirm (Daily?), so we don't close.
+  } else {
+    document.getElementById('voiceStatus').textContent = '❓ Not understood. Try: "fan on karo"';
+    if (!handsFreeMode) setTimeout(stopVoiceCommand, 3000);
+  }
 }
 
 /* ─────────────────────────────────────────────
