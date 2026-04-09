@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smart-home-v3';
+const CACHE_NAME = 'smart-home-v5';
 
 // Only cache local files — external CDN resources are fetched live
 const LOCAL_FILES = [
