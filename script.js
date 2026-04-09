@@ -12,7 +12,7 @@
    CONSTANTS
 ───────────────────────────────────────────── */
 const CORRECT_PASSWORD = 'sharez_2004';
-const VOICE_PASSPHRASE = 'bigg boss has big role'; // normalized
+const VOICE_PASSPHRASE = 'delta start'; // normalized
 const IST_TIMEZONE     = 'Asia/Kolkata';
 const dayNames         = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
