@@ -120,6 +120,17 @@
           <span class="lang-pill active"><i class="fas fa-globe"></i> English</span>
           <span class="lang-pill active"><i class="fas fa-language"></i> Hinglish</span>
         </div>
+        
+        <!-- Voice Visualizer Canvas -->
+        <div class="voice-visualizer-container">
+          <canvas id="voiceVisualizer" width="300" height="100"></canvas>
+        </div>
+
+        <div class="voice-controls-row">
+          <button class="voice-mode-toggle" id="handsFreeToggle" onclick="toggleHandsFree()">
+            <i class="fas fa-headset"></i> <span>Hands-Free: OFF</span>
+          </button>
+        </div>
         <p class="voice-status" id="voiceStatus">Listening… speak a command</p>
         <p class="voice-transcript" id="voiceTranscript"></p>
         <!-- Daily timer prompt -->
