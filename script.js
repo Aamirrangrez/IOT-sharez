@@ -39,16 +39,16 @@ let pendingVoiceTimerData = null;   // holds parsed timer data, awaiting daily c
 function switchPwTab(tab) {
   const isPw = tab === 'password';
   document.getElementById('pwPasswordTab').style.display = isPw ? '' : 'none';
-  document.getElementById('pwVoiceTab').style.display    = isPw ? 'none' : '';
+  document.getElementById('pwVoiceTab').style.display = isPw ? 'none' : '';
   document.getElementById('tabPw').classList.toggle('active', isPw);
   document.getElementById('tabVoice').classList.toggle('active', !isPw);
   // NOTE: Do NOT auto-start here — mobile browsers block audio
   //       without an explicit user tap on the microphone button
   if (!isPw) {
-    const statusEl  = document.getElementById('voiceUnlockStatus');
-    const btnText   = document.getElementById('voiceUnlockBtnText');
-    if (statusEl)  statusEl.textContent  = '👆 Tap the button below to start listening';
-    if (btnText)   btnText.textContent   = 'Tap to Listen';
+    const statusEl = document.getElementById('voiceUnlockStatus');
+    const btnText = document.getElementById('voiceUnlockBtnText');
+    if (statusEl) statusEl.textContent = '👆 Tap the button below to start listening';
+    if (btnText) btnText.textContent = 'Tap to Listen';
   }
 }
 
@@ -91,21 +91,23 @@ let voiceUnlockRecognition = null;
 
 function startVoiceUnlock() {
   const statusEl = document.getElementById('voiceUnlockStatus');
-  const errEl    = document.getElementById('pwVoiceError');
-  const btn      = document.getElementById('voiceUnlockBtn');
-  const btnText  = document.getElementById('voiceUnlockBtnText');
+  const errEl = document.getElementById('pwVoiceError');
+  const btn = document.getElementById('voiceUnlockBtn');
+  const btnText = document.getElementById('voiceUnlockBtnText');
 
   // If already listening — stop on second tap (toggle)
   if (voiceUnlockRecognition) {
-    try { voiceUnlockRecognition.abort(); } catch(e) {}
+    try { voiceUnlockRecognition.abort(); } catch (e) { }
     voiceUnlockRecognition = null;
     btn.classList.remove('listening');
-    btnText.textContent  = 'Tap to Listen';
+    btnText.textContent = 'Tap to Listen';
     statusEl.textContent = '👆 Tap again to retry';
+    hideVoiceConfirm();
     return;
   }
 
   errEl.classList.remove('visible');
+  hideVoiceConfirm();
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -117,56 +119,44 @@ function startVoiceUnlock() {
   voiceUnlockRecognition = r;
 
   // Use en-US — more reliable on Android Chrome than en-IN
-  r.lang            = 'en-US';
-  r.continuous      = false;
-  r.interimResults  = false;
+  r.lang = 'en-US';
+  r.continuous = false;
+  r.interimResults = false;
   r.maxAlternatives = 5;   // check top-5 guesses — improves accuracy
 
   btn.classList.add('listening');
-  btnText.textContent  = 'Listening…';
+  btnText.textContent = 'Listening…';
   statusEl.textContent = '🎙 Speak now…';
 
   try {
     r.start();
-  } catch(startErr) {
+  } catch (startErr) {
     // start() can throw if mic permission denied synchronously
     voiceUnlockRecognition = null;
     btn.classList.remove('listening');
-    btnText.textContent  = 'Tap to Listen';
+    btnText.textContent = 'Tap to Listen';
     statusEl.textContent = '⚠ Microphone error. Allow mic & tap again.';
     return;
   }
 
   r.onresult = (e) => {
-    let shownTranscript = e.results[0][0].transcript.toLowerCase().trim();
-    let matched = false;
-
-    // Check ALL 5 alternatives — mobile often puts correct answer in alt 2-5
+    const shownTranscript = e.results[0][0].transcript.toLowerCase().trim();
+    const allAlts = [];
     for (let a = 0; a < e.results[0].length; a++) {
-      const alt  = e.results[0][a].transcript.toLowerCase().trim();
-      const passphraseWords = VOICE_PASSPHRASE.toLowerCase().trim().split(/\s+/);
-      const altWords        = alt.split(/\s+/);
-      const allWordsFound   = passphraseWords.every(pw =>
-        altWords.some(tw => tw === pw || tw.startsWith(pw) || pw.startsWith(tw))
-      );
-      const noSpaceMatch = alt.replace(/\s+/g,'').includes(VOICE_PASSPHRASE.replace(/\s+/g,''));
-      if (allWordsFound || noSpaceMatch) { matched = true; break; }
+      allAlts.push(e.results[0][a].transcript.toLowerCase().trim());
     }
-
     voiceUnlockRecognition = null;
-    statusEl.textContent   = `Heard: "${shownTranscript}"`;
+    btn.classList.remove('listening');
+    statusEl.textContent = `Heard: "${shownTranscript}"`;
 
-    if (matched) {
+    if (passphraseMatches(allAlts)) {
       statusEl.textContent = '✅ Recognized! Unlocking…';
-      btn.classList.remove('listening');
-      btnText.textContent  = 'Unlocking…';
+      btnText.textContent = 'Unlocking…';
       setTimeout(unlockApp, 600);
     } else {
-      errEl.classList.remove('visible');
-      void errEl.offsetWidth;
-      errEl.classList.add('visible');
-      btn.classList.remove('listening');
+      // Auto-match failed — show manual confirm button as fallback
       btnText.textContent = 'Try Again';
+      showVoiceConfirm(shownTranscript);
     }
   };
 
@@ -175,12 +165,12 @@ function startVoiceUnlock() {
     btn.classList.remove('listening');
     btnText.textContent = 'Tap to Listen';
     const msgs = {
-      'no-speech':          '🔇 No speech. Tap & speak clearly.',
-      'audio-capture':      '🎤 No microphone found.',
-      'not-allowed':        '🚫 Mic blocked — allow in browser settings.',
-      'service-not-allowed':'🚫 Mic not allowed. Allow & reload.',
-      'network':            '📵 Network error. Check connection.',
-      'aborted':            '⏹ Stopped.',
+      'no-speech': '🔇 No speech. Tap & speak clearly.',
+      'audio-capture': '🎤 No microphone found.',
+      'not-allowed': '🚫 Mic blocked — allow in browser settings.',
+      'service-not-allowed': '🚫 Mic not allowed. Allow & reload.',
+      'network': '📵 Network error. Check connection.',
+      'aborted': '⏹ Stopped.',
     };
     statusEl.textContent = msgs[e.error] || `⚠ Error (${e.error}). Tap to retry.`;
   };
@@ -189,10 +179,58 @@ function startVoiceUnlock() {
     voiceUnlockRecognition = null;
     btn.classList.remove('listening');
     if (btnText.textContent === 'Listening…') {
-      btnText.textContent  = 'Tap to Listen';
+      btnText.textContent = 'Tap to Listen';
       statusEl.textContent = '👆 Tap to try again';
     }
   };
+}
+
+// Ultra-lenient matching: passes if any alt has ALL words, or ≥70% words for longer passphrases
+function passphraseMatches(alternatives) {
+  const words = VOICE_PASSPHRASE.toLowerCase().trim().split(/\s+/);
+  for (const alt of alternatives) {
+    const altWords = alt.split(/\s+/);
+    const allFound = words.every(pw =>
+      altWords.some(tw => tw === pw || tw.includes(pw) || pw.includes(tw))
+    );
+    const noSpace = alt.replace(/\s+/g, '').includes(VOICE_PASSPHRASE.replace(/\s+/g, ''));
+    const threshold = words.length <= 2 ? words.length : Math.ceil(words.length * 0.7);
+    const matchCount = words.filter(pw =>
+      altWords.some(tw => tw === pw || tw.includes(pw) || pw.includes(tw))
+    ).length;
+    if (allFound || noSpace || matchCount >= threshold) return true;
+  }
+  return false;
+}
+
+// Shows "Yes, Unlock" button when auto-match fails — user confirms manually
+function showVoiceConfirm(transcript) {
+  let box = document.getElementById('voiceUnlockConfirm');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'voiceUnlockConfirm';
+    box.style.cssText = 'margin-top:12px;display:flex;flex-direction:column;gap:8px;';
+    box.innerHTML = `
+      <p style="font-size:13px;color:var(--text-secondary);">Heard: <strong id="voiceConfirmText" style="color:var(--accent-blue);"></strong></p>
+      <p style="font-size:12px;color:var(--text-muted);">Is this correct? Tap Unlock.</p>
+      <button class="pw-btn" onclick="manualVoiceUnlock()" style="padding:10px;">
+        <span class="pw-btn-text"><i class="fas fa-unlock-keyhole"></i> Yes, Unlock</span>
+        <div class="pw-btn-shine"></div>
+      </button>`;
+    document.getElementById('pwVoiceTab').appendChild(box);
+  }
+  document.getElementById('voiceConfirmText').textContent = '"' + transcript + '"';
+  box.style.display = 'flex';
+}
+
+function hideVoiceConfirm() {
+  const c = document.getElementById('voiceUnlockConfirm');
+  if (c) c.style.display = 'none';
+}
+
+function manualVoiceUnlock() {
+  hideVoiceConfirm();
+  unlockApp();
 }
 
 /* ─────────────────────────────────────────────
@@ -807,18 +845,15 @@ function startTimerScheduler() {
 
 /* ═══════════════════════════════════════════════════════════════
    AI VOICE ASSISTANT
-   Supports: Hindi (hi-IN), Marathi (mr-IN), English (en-IN)
+   Language: English / Hinglish (en-IN)
    Commands understood:
-     Relay control: "fan on karo", "light band karo", "turn on relay1"
-     Timer (voice): "light 6pm se 9am tak on karo"
+     Relay: "turn on fan", "fan on karo", "light band karo"
+     Timer: "light 6pm se 7am tak on karo"
    ═══════════════════════════════════════════════════════════════ */
-
-const LANG_CODES = ['hi-IN', 'mr-IN', 'en-IN'];
-let langIndex = 0;
 
 function startVoiceCommand() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert('Voice recognition not supported in this browser. Please use Chrome or Edge.'); return; }
+  if (!SR) { alert('Voice not supported. Please use Chrome or Edge.'); return; }
   if (voiceIsListening) { stopVoiceCommand(); return; }
 
   voiceIsListening = true;
@@ -832,8 +867,7 @@ function startVoiceCommand() {
   recognition = new SR();
   recognition.continuous = false;
   recognition.interimResults = true;
-  recognition.lang = LANG_CODES[langIndex];
-  langIndex = (langIndex + 1) % LANG_CODES.length;
+  recognition.lang = 'en-IN';   // Indian English / Hinglish
 
   recognition.onresult = (e) => {
     let interim = '', final = '';
@@ -866,8 +900,87 @@ function stopVoiceCommand() {
   document.getElementById('voiceOverlay').classList.remove('open');
   document.getElementById('voiceFab').classList.remove('listening');
   document.getElementById('voiceFabIcon').className = 'fas fa-microphone';
+  document.getElementById('voiceFab').classList.remove('held');
   pendingVoiceTimerData = null;
   document.getElementById('voiceDailyPrompt').style.display = 'none';
+}
+
+/* ─────────────────────────────────────────────
+   HOLD-TO-SPEAK: Press & Hold mic to record
+───────────────────────────────────────────── */
+let holdToSpeakRecognition = null;
+let isHoldingMic = false;
+
+function startHoldToSpeak() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert('Voice not supported. Please use Chrome or Edge.'); return; }
+
+  isHoldingMic = true;
+  const voiceFab = document.getElementById('voiceFab');
+  const holdIndicator = document.getElementById('holdIndicator');
+
+  voiceFab.classList.add('held');
+  if (holdIndicator) holdIndicator.style.display = 'block';
+
+  // Stop any previous recognition
+  if (holdToSpeakRecognition) {
+    try { holdToSpeakRecognition.abort(); } catch (e) { }
+    holdToSpeakRecognition = null;
+  }
+
+  holdToSpeakRecognition = new SR();
+  holdToSpeakRecognition.continuous = true;
+  holdToSpeakRecognition.interimResults = true;
+  holdToSpeakRecognition.lang = 'en-IN';
+
+  let finalTranscript = '';
+
+  holdToSpeakRecognition.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        finalTranscript += t + ' ';
+      } else {
+        interim += t;
+      }
+    }
+    // Could show interim results here if desired
+  };
+
+  holdToSpeakRecognition.onerror = (e) => {
+    console.error('Voice error:', e.error);
+  };
+
+  holdToSpeakRecognition.onend = () => {
+    isHoldingMic = false;
+  };
+
+  try {
+    holdToSpeakRecognition.start();
+  } catch (e) {
+    console.error('Failed to start recognition:', e);
+  }
+}
+
+function releaseHoldToSpeak() {
+  if (!isHoldingMic) return;
+
+  isHoldingMic = false;
+  const voiceFab = document.getElementById('voiceFab');
+  const holdIndicator = document.getElementById('holdIndicator');
+
+  voiceFab.classList.remove('held');
+  if (holdIndicator) holdIndicator.style.display = 'none';
+
+  if (holdToSpeakRecognition) {
+    try {
+      holdToSpeakRecognition.stop();
+    } catch (e) {
+      console.error('Error stopping recognition:', e);
+    }
+    holdToSpeakRecognition = null;
+  }
 }
 
 /* ─────────────────────────────────────────────
