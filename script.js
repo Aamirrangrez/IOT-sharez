@@ -39,10 +39,17 @@ let pendingVoiceTimerData = null;   // holds parsed timer data, awaiting daily c
 function switchPwTab(tab) {
   const isPw = tab === 'password';
   document.getElementById('pwPasswordTab').style.display = isPw ? '' : 'none';
-  document.getElementById('pwVoiceTab').style.display = isPw ? 'none' : '';
+  document.getElementById('pwVoiceTab').style.display    = isPw ? 'none' : '';
   document.getElementById('tabPw').classList.toggle('active', isPw);
   document.getElementById('tabVoice').classList.toggle('active', !isPw);
-  if (!isPw) startVoiceUnlock(); // auto-start listening when switching to voice tab
+  // NOTE: Do NOT auto-start here — mobile browsers block audio
+  //       without an explicit user tap on the microphone button
+  if (!isPw) {
+    const statusEl  = document.getElementById('voiceUnlockStatus');
+    const btnText   = document.getElementById('voiceUnlockBtnText');
+    if (statusEl)  statusEl.textContent  = '👆 Tap the button below to start listening';
+    if (btnText)   btnText.textContent   = 'Tap to Listen';
+  }
 }
 
 function checkPassword() {
@@ -79,48 +86,81 @@ function unlockApp() {
 /* ─────────────────────────────────────────────
    VOICE UNLOCK (on password gate)
 ───────────────────────────────────────────── */
+// Track active recognition so we can clean it up between taps
+let voiceUnlockRecognition = null;
+
 function startVoiceUnlock() {
   const statusEl = document.getElementById('voiceUnlockStatus');
-  const errEl = document.getElementById('pwVoiceError');
-  const btn = document.getElementById('voiceUnlockBtn');
-  const btnText = document.getElementById('voiceUnlockBtnText');
+  const errEl    = document.getElementById('pwVoiceError');
+  const btn      = document.getElementById('voiceUnlockBtn');
+  const btnText  = document.getElementById('voiceUnlockBtnText');
+
+  // If already listening — stop on second tap (toggle)
+  if (voiceUnlockRecognition) {
+    try { voiceUnlockRecognition.abort(); } catch(e) {}
+    voiceUnlockRecognition = null;
+    btn.classList.remove('listening');
+    btnText.textContent  = 'Tap to Listen';
+    statusEl.textContent = '👆 Tap again to retry';
+    return;
+  }
 
   errEl.classList.remove('visible');
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
-    statusEl.textContent = '⚠ Speech recognition not supported in this browser.';
+    statusEl.textContent = '⚠ Use Chrome browser — voice not supported here.';
     return;
   }
 
   const r = new SR();
-  r.lang = 'en-IN';
-  r.continuous = false;
-  r.interimResults = false;
+  voiceUnlockRecognition = r;
+
+  // Use en-US — more reliable on Android Chrome than en-IN
+  r.lang            = 'en-US';
+  r.continuous      = false;
+  r.interimResults  = false;
+  r.maxAlternatives = 5;   // check top-5 guesses — improves accuracy
 
   btn.classList.add('listening');
-  btnText.textContent = 'Listening…';
-  statusEl.textContent = '🎙 Listening for passphrase…';
+  btnText.textContent  = 'Listening…';
+  statusEl.textContent = '🎙 Speak now…';
 
-  r.start();
+  try {
+    r.start();
+  } catch(startErr) {
+    // start() can throw if mic permission denied synchronously
+    voiceUnlockRecognition = null;
+    btn.classList.remove('listening');
+    btnText.textContent  = 'Tap to Listen';
+    statusEl.textContent = '⚠ Microphone error. Allow mic & tap again.';
+    return;
+  }
 
   r.onresult = (e) => {
-    const transcript = e.results[0][0].transcript.toLowerCase().trim();
-    statusEl.textContent = `Heard: "${transcript}"`;
+    let shownTranscript = e.results[0][0].transcript.toLowerCase().trim();
+    let matched = false;
 
-    // Match if ALL words of the passphrase appear in the transcript
-    // This handles: extra filler words, slight accent variations, word order
-    const passphraseWords = VOICE_PASSPHRASE.toLowerCase().trim().split(/\s+/);
-    const transcriptWords = transcript.split(/\s+/);
-    const allWordsFound   = passphraseWords.every(pw =>
-      transcriptWords.some(tw => tw === pw || tw.startsWith(pw) || pw.startsWith(tw))
-    );
+    // Check ALL 5 alternatives — mobile often puts correct answer in alt 2-5
+    for (let a = 0; a < e.results[0].length; a++) {
+      const alt  = e.results[0][a].transcript.toLowerCase().trim();
+      const passphraseWords = VOICE_PASSPHRASE.toLowerCase().trim().split(/\s+/);
+      const altWords        = alt.split(/\s+/);
+      const allWordsFound   = passphraseWords.every(pw =>
+        altWords.some(tw => tw === pw || tw.startsWith(pw) || pw.startsWith(tw))
+      );
+      const noSpaceMatch = alt.replace(/\s+/g,'').includes(VOICE_PASSPHRASE.replace(/\s+/g,''));
+      if (allWordsFound || noSpaceMatch) { matched = true; break; }
+    }
 
-    if (allWordsFound || transcript.replace(/\s+/g,'').includes(VOICE_PASSPHRASE.replace(/\s+/g,''))) {
-      statusEl.textContent = '✅ Passphrase recognized! Unlocking…';
+    voiceUnlockRecognition = null;
+    statusEl.textContent   = `Heard: "${shownTranscript}"`;
+
+    if (matched) {
+      statusEl.textContent = '✅ Recognized! Unlocking…';
       btn.classList.remove('listening');
-      btnText.textContent = 'Tap to Listen';
-      setTimeout(unlockApp, 700);
+      btnText.textContent  = 'Unlocking…';
+      setTimeout(unlockApp, 600);
     } else {
       errEl.classList.remove('visible');
       void errEl.offsetWidth;
@@ -130,15 +170,28 @@ function startVoiceUnlock() {
     }
   };
 
-  r.onerror = () => {
+  r.onerror = (e) => {
+    voiceUnlockRecognition = null;
     btn.classList.remove('listening');
     btnText.textContent = 'Tap to Listen';
-    statusEl.textContent = '⚠ Could not hear. Please try again.';
+    const msgs = {
+      'no-speech':          '🔇 No speech. Tap & speak clearly.',
+      'audio-capture':      '🎤 No microphone found.',
+      'not-allowed':        '🚫 Mic blocked — allow in browser settings.',
+      'service-not-allowed':'🚫 Mic not allowed. Allow & reload.',
+      'network':            '📵 Network error. Check connection.',
+      'aborted':            '⏹ Stopped.',
+    };
+    statusEl.textContent = msgs[e.error] || `⚠ Error (${e.error}). Tap to retry.`;
   };
 
   r.onend = () => {
+    voiceUnlockRecognition = null;
     btn.classList.remove('listening');
-    if (btnText.textContent === 'Listening…') btnText.textContent = 'Tap to Listen';
+    if (btnText.textContent === 'Listening…') {
+      btnText.textContent  = 'Tap to Listen';
+      statusEl.textContent = '👆 Tap to try again';
+    }
   };
 }
 
